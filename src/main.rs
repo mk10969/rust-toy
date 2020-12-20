@@ -3,8 +3,13 @@ mod test_duct;
 mod test_maplit;
 
 use anyhow::Context as _;
+use lazy_static::lazy_static;
+use regex::Regex;
 use std::fs;
+use std::path::PathBuf;
+use structopt::clap::arg_enum;
 use structopt::StructOpt;
+use structopt::{clap, StructOpt};
 
 fn main() {
     println!("Hello, world!");
@@ -22,8 +27,13 @@ fn main_anyhow() -> anyhow::Result<()> {
 }
 
 fn main_comandline() -> anyhow::Result<()> {
-    Ops::from_args();
+    Opt::from_args();
     Ok(())
+
+    // #[derive(StructOpt)]
+    // struct Ops {}
+    // デフォルトの場合下記が出力される。
+
     // $ ./target/release/rust-toy --help
     // Hello, world!
     // rust-toy 0.1.0
@@ -36,10 +46,69 @@ fn main_comandline() -> anyhow::Result<()> {
     //     -V, --version    Prints version information
 }
 
-#[derive(StructOpt)]
-struct Ops {}
+lazy_static! {
+    static ref THREADS: String = format!("{}", num_cpus::get());
+}
+#[derive(Debug, StructOpt)]
+#[structopt(name = "App name")]
+#[structopt(long_version(option_env!("LONG_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))))]
+#[structopt(setting(clap::AppSettings::ColoredHelp))]
+pub struct Opt {
+    #[structopt(name = "WORDS")]
+    pub words: Vec<String>,
 
-#[test]
-fn test_main() {
-    println!("Hello, world!");
+    #[structopt(short = "n")]
+    pub count: Option<usize>,
+
+    #[structopt(short = "p", long = "path")]
+    pub path: PathBuf,
+
+    #[structopt(short = "r", long = "regex")]
+    pub regex: Regex,
+
+    #[structopt(
+        short = "t",
+        long = "threads",
+        default_value(&THREADS),
+        value_name = "NUM"
+    )]
+    pub threads: usize,
+
+    #[structopt(
+        short = "m",
+        long = "method",
+        possible_values(&Method::variants())
+    )]
+    pub method: Option<Method>,
+
+    #[structopt(short = "a", conflicts_with_all(&["b", "c"]))]
+    pub a: bool,
+
+    #[structopt(short = "b", conflicts_with_all(&["a", "c"]))]
+    pub b: bool,
+
+    #[structopt(short = "c", conflicts_with_all(&["a", "b"]))]
+    pub c: bool,
+
+    #[structopt(short = "v", long = "verbose")]
+    pub verbose: bool,
+
+    #[structopt(subcommand)]
+    pub sub: Sub,
+}
+
+#[derive(Debug, StructOpt)]
+pub enum Sub {
+    #[structopt(name = "sub1", about = "sub command1")]
+    #[structopt(setting(clap::AppSettings::ColoredHelp))]
+    Sub1,
+}
+
+arg_enum! {
+    #[derive(Debug)]
+    pub enum Method {
+        A,
+        B,
+        C,
+    }
 }
