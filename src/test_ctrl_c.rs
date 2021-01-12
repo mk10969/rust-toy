@@ -3,10 +3,13 @@
 mod tests {
     use lazy_static::lazy_static;
     use std::{
+        cell::UnsafeCell,
+        hint::spin_loop,
+        ops::{Deref, DerefMut},
         sync::{
             atomic::AtomicBool,
-            atomic::{AtomicUsize, Ordering},
-            Arc, Mutex,
+            atomic::{spin_loop_hint, AtomicUsize, Ordering},
+            Arc, Mutex, MutexGuard,
         },
         thread::spawn,
     };
@@ -71,5 +74,77 @@ mod tests {
         // 終了まで待機
         thread.join().unwrap();
         eprintln!("counter = {}", COUNTER2.load(Ordering::SeqCst));
+    }
+
+    // スピンロック（ロックが獲得できない間、無限ループによってロック怪j法を待つ）
+    pub struct Mutex<T> {
+        // 「ロックされている」OR「ロックされていない」の２状態ある。
+        locked: AtomicBool,
+        // ミューテックスが保護するデータ。
+        inner: UnsafeCell<T>,
+    }
+    // ロックを保持するRAIIガード
+    pub struct MutexGuard<'a, T> {
+        locked: &'a AtomicBool,
+        inner: &'a mut T,
+    }
+
+    unsafe impl<T: Send> Send for Mutex<T> {}
+    unsafe impl<T: Sync> Sync for Mutex<T> {}
+
+    impl<T> Mutex<T> {
+        fn new(value: T) -> Self {
+            Self {
+                locked: AtomicBool::new(false),
+                inner: UnsafeCell::new(value),
+            }
+        }
+
+        fn lock(&self) -> MutexGuard<'_, T> {
+            loop {
+                // 「ロックされているか調べ、されていなかったらロックを取得する」
+                // という処理をする。
+                // ただし、一気にやらないと競合状態が発生してしまう。
+                // Compare-and-swapによって上記を一度に行う。
+                // 「false だったら true に変更する、そうでなかったら何もしない」
+                let old_locked = self.locked.compare_and_swap(false, true, Ordering::SeqCst);
+                // 戻り値は元の値。
+                if old_locked != false {
+                    // 元の値がtrue → 他の人がロックしていた。
+                    // 無限ループによって次の機会を待つ。
+                    spin_loop_hint();
+                    continue;
+                }
+                // 元の値がfalse → ロック成功
+                break;
+            }
+
+            MutexGuard {
+                locked: &self.locked,
+                inner: unsafe { &mut *self.inner.get() },
+            }
+        }
+    }
+
+    impl<T> Drop for MutexGuard<'_, T> {
+        fn drop(&mut self) {
+            // アンロック時は競合状態は気にしなくてよいので、単にfalseを保存する。
+            self.locked.store(false, Ordering::SeqCst);
+        }
+    }
+
+    // https://doc.rust-jp.rs/book-ja/ch15-02-deref.html
+    // Dereference
+    impl<T> Deref for MutexGuard<'_, T> {
+        type Target = T;
+        fn deref(&self) -> &Self::Target {
+            self.inner
+        }
+    }
+
+    impl<T> DerefMut for MutexGuard<'_, T> {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            self.inner
+        }
     }
 }

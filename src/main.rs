@@ -5,11 +5,8 @@ mod test_maplit;
 use anyhow::Context as _;
 use lazy_static::lazy_static;
 use regex::Regex;
-use std::fs;
-use std::path::PathBuf;
-use structopt::clap::arg_enum;
-use structopt::StructOpt;
-use structopt::{clap, StructOpt};
+use std::{fs, path::PathBuf};
+use structopt::{clap, clap::arg_enum, StructOpt};
 
 fn main() {
     println!("Hello, world!");
